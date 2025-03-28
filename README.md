@@ -14,6 +14,7 @@ The project consists of two main components:
 The console application performs the following steps:
 
 1. Prompts the user to enter a country code and a currency code.
+   - Supported country and currency code combinations : `GB/GBP`, `FR/EUR`, `US/USD`, `MX/USD`.
 2. Sends an HTTP GET request to the `CrezcoHttpMessageHandler` with the provided country and currency codes.
 3. Ensures the response is successful and reads the JSON content.
 4. Extracts and prints the required bank account properties from the JSON Schema.
