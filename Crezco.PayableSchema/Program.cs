@@ -8,48 +8,71 @@ var countryCode = Console.ReadLine();
 Console.Write("Enter Currency Code: ");
 var currencyCode = Console.ReadLine();
 
-var client = new HttpClient(new CrezcoHttpMessageHandler());
+
+var client = new HttpClient(
+    new AuthorizationDelegatingHandler
+    {
+        InnerHandler = new VersionDelegatingHandler
+        {
+            InnerHandler = new HttpClientHandler()
+        }
+    }
+)
+{
+    BaseAddress = new Uri("https://api.partners.crezco.com/")
+};
 
 var httpResponseMessage =
     await client.GetAsync(
-        $"https://localhost:5001/organisation/{Guid.NewGuid()}/pay-run/payables/schema?country={countryCode}&currency={currencyCode}");
+        $"/pay-runs/payables/schema?country={countryCode}&currency={currencyCode}");
 
 httpResponseMessage.EnsureSuccessStatusCode();
 
-var json = await httpResponseMessage.Content.ReadFromJsonAsync<JsonDocument>();
+var json = await httpResponseMessage.Content.ReadFromJsonAsync<JsonDocument>()
+           ?? throw new InvalidOperationException("Failed to read JSON document");
+
+
+var possibleBeneficiaries = GetPossibleBeneficiaries(json);
+Console.WriteLine("** Possible Beneficiaries **");
+foreach (var beneficiary in possibleBeneficiaries)
+{
+    Console.WriteLine(beneficiary);
+}
+
+Console.WriteLine();
 
 var requiredProperties = GetRequiredBankAccountProperties(json);
 PrintRequiredBankAccountProperties(requiredProperties);
 
+Console.WriteLine();
+
 var possiblePurposeCodes = GetPossiblePurposeCodes(json);
 PrintPossiblePurposeCodes(possiblePurposeCodes);
 
-List<KeyValuePair<string, string[]>> GetRequiredBankAccountProperties(JsonDocument? jsonDocument)
+IReadOnlyCollection<string> GetPossibleBeneficiaries(JsonDocument jsonDocument)
+{
+    var beneficiaryJsonElement = jsonDocument.RootElement.GetProperty("$defs")
+        .GetProperty("beneficiary");
+    
+    return 
+        beneficiaryJsonElement.GetProperty("oneOf")
+        .EnumerateArray()
+        .Select(x => 
+            x.GetProperty("title").GetString() ?? throw new InvalidOperationException("Title not found"))
+        .ToArray();
+
+}
+List<KeyValuePair<string, string[]>> GetRequiredBankAccountProperties(JsonDocument jsonDocument)
 {
     var bankAccountJsonElement = jsonDocument.RootElement.GetProperty("$defs")
-        .EnumerateObject()
-        .Single(x => x.Value.TryGetProperty("$id", out var property) && property.GetString() == "http://crezco.com/schemas/pay-run/payables/bank-account")
-        .Value;
+        .GetProperty("bankAccount");
 
-    List<KeyValuePair<string, string[]>> keyValuePairs = new();
+    return bankAccountJsonElement.GetProperty("oneOf")
+        .EnumerateArray()
+        .Select(CreateRequiredPropertiesPair)
+        .ToList();
 
-    if (bankAccountJsonElement.TryGetProperty("oneOf", out var oneOfJsonElement))
-    {
-        foreach (var item in oneOfJsonElement.EnumerateArray())
-        {
-            var keyValuePair = CreateRequiredPropertiesPair(item);
-            keyValuePairs.Add(keyValuePair!);
-        }
-    }
-    else
-    {
-        var keyValuePair = CreateRequiredPropertiesPair(bankAccountJsonElement);
-        keyValuePairs.Add(keyValuePair!);
-    }
-
-    return keyValuePairs;
-
-    KeyValuePair<string?, string?[]> CreateRequiredPropertiesPair(JsonElement jsonElement)
+    KeyValuePair<string, string[]> CreateRequiredPropertiesPair(JsonElement jsonElement)
     {
         var title = jsonElement.GetProperty("title")
             .GetString();
@@ -78,32 +101,56 @@ void PrintRequiredBankAccountProperties(List<KeyValuePair<string, string[]>> lis
     }
 }
 
-PurposeCode[]? GetPossiblePurposeCodes(JsonDocument? json1)
+(bool required, PurposeCode[] purposeCodes) GetPossiblePurposeCodes(JsonDocument schema)
 {
-    var requiredPayRunProperties = json1!.RootElement.GetProperty("required").Deserialize<string[]>()!;
-    PurposeCode[] strings = null;
-    if (requiredPayRunProperties.Contains("purposeCode"))
-    {
-        strings = json1.RootElement.GetProperty("$defs").GetProperty("purposeCode")
-            .GetProperty("oneOf")
-            .Deserialize<PurposeCode[]>(JsonSerializerOptions.Web)!;
-    }
+    var requiredPurposeCode = schema.RootElement.GetProperty("required")
+        .EnumerateArray().Any(x => x.GetString() == "purposeCode");
 
-    return strings;
+    var purposeCodeJsonElement = schema.RootElement.GetProperty("$defs")
+        .GetProperty("purposeCode");
+    var oneOf = purposeCodeJsonElement
+        .GetProperty("oneOf")
+        .EnumerateArray()
+        .Select(x => new PurposeCode(
+                Const: x.GetProperty("const").GetString(),
+                Title: x.TryGetProperty("title", out var titleProperty) switch
+                {
+                    true => titleProperty.GetString(),
+                    false => null
+                },
+                Enabled: true
+            )
+        );
+
+    var notAnyOf = purposeCodeJsonElement
+        .GetProperty("not")
+        .GetProperty("anyOf")
+        .EnumerateArray()
+        .Select(x => new PurposeCode(
+                Const: x.GetProperty("const").GetString(),
+                Title: x.GetProperty("title").GetString(),
+                Enabled: false
+            )
+        );
+
+    return (requiredPurposeCode, oneOf.Concat(notAnyOf).ToArray());
 }
 
 
-void PrintPossiblePurposeCodes(PurposeCode[]? possiblePurposeCodes1)
+void PrintPossiblePurposeCodes((bool required, PurposeCode[] purposeCodes) input)
 {
-    if (possiblePurposeCodes1 != null)
-    {
-        Console.WriteLine("Purpose Code is required");
+    Console.WriteLine($"Purpose Code is {input.required switch {
+        false => "*not* ",
+        _ => ""
+    }}required");
 
-        foreach (var purposeCode in possiblePurposeCodes1)
-        {
-            Console.WriteLine("- " + purposeCode.Title + " (" + purposeCode.Const + ") " + (purposeCode.Enabled ? "(Enabled)" : "(Disabled)"));
-        }
+
+    Console.WriteLine("** Possible Purpose Codes **");
+    foreach (var purposeCode in input.purposeCodes)
+    {
+        Console.WriteLine(
+            $"Const: {purposeCode.Const ?? "'null'"}, Title: {purposeCode.Title} (Enabled: {purposeCode.Enabled})");
     }
-    
 }
-record PurposeCode(string Const, string Title, bool Enabled);
+
+record PurposeCode(string? Const, string? Title, bool Enabled);
