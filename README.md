@@ -50,8 +50,14 @@ iban
 
 Purpose Code is required:
 ** Possible Purpose Codes **
-Const: Rent, Title: Rent Payment (Enabled: True)
-Const: LoanRepayment, Title: Loan Repayment (Enabled: True)
-Const: Donation, Title: Charitable Donation (Enabled: True)
-Const: Gambling, Title: Gambling Payment (Enabled: False)
+Const: BusinessAndAdvisoryServices, Title: Business & Advisory Services (Enabled: True)
+Const: Construction, Title: Construction (Enabled: True)
+Const: DirectEmployeeSalaries, Title: Direct Employee Salaries (Enabled: False)
+Const: Expenses, Title: Expenses (Enabled: True)
+Const: Insurance, Title: Insurance (Enabled: True)
+Const: IntellectualProperty, Title: Intellectual Property (Enabled: True)
+Const: IntercompanyTransfer, Title: Intercompany Transfer (Enabled: True)
+Const: InvestmentActivity, Title: Investment Activity (Enabled: True)
+Const: PayingForGoods, Title: Paying for Goods (Enabled: True)
+Const: RealEstateAndProperty, Title: Real Estate & Property (Enabled: True)
 ```
